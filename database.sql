@@ -1,8 +1,4 @@
--- Skema Database JalaninAja v9
--- Versi ini menambahkan kolom avatar_url ke tabel Users dan memperbarui trigger.
--- =====================================================================
--- BAGIAN 1: MENGHAPUS TABEL LAMA (jalankan jika Anda memulai dari awal)
--- =====================================================================
+
 DROP TABLE IF EXISTS "Upvotes" CASCADE;
 DROP TABLE IF EXISTS "Report" CASCADE;
 DROP TABLE IF EXISTS "Users" CASCADE;

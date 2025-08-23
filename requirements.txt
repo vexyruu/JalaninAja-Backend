@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+torch
+ultralytics
+requests
+Pillow
+numpy
+gcsfs
+google-cloud-secret-manager
+google-cloud-storage
+supabase
+polyline
+osmnx
+python-dotenv

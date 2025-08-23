@@ -13,7 +13,7 @@ CREATE TABLE "Users" (
   name varchar(100) NOT NULL,
   email varchar(100) NOT NULL UNIQUE,
   points int DEFAULT 0,
-  avatar_url text -- KOLOM BARU
+  avatar_url text
 );
 
 CREATE TABLE "Report" (

@@ -1,10 +1,9 @@
 fastapi
 uvicorn[standard]
-torch
 ultralytics
 requests
 Pillow
-numpy
+numpy<2.0
 gcsfs
 google-cloud-secret-manager
 google-cloud-storage
@@ -12,3 +11,7 @@ supabase
 polyline
 osmnx
 python-dotenv
+torch==2.2.2+cpu
+torchvision
+--extra-index-url https://download.pytorch.org/whl/cpu
+python-multipart

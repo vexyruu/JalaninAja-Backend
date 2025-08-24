@@ -1,22 +1,35 @@
-# Dockerfile
-
-# Gunakan base image resmi dari Python
+# Use lightweight Python base
 FROM python:3.11-slim
 
-# --- PERUBAHAN: Install SEMUA library sistem yang hilang ---
-# Menambahkan libglib2.0-0 untuk mengatasi error libgthread
-RUN apt-get update && apt-get install -y libgl1 libglib2.0-0
+# Prevent Python from writing .pyc files and buffering stdout
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Set working directory di dalam container
+# Set work directory
 WORKDIR /app
 
-# Salin file requirements dan install dependencies
+# Install system dependencies for Pillow, numpy, etc.
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
 COPY requirements.txt .
+
+# Install all dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Salin seluruh kode aplikasi ke dalam container
-COPY . .
+# Copy app code and model
+COPY main.py .
+COPY best.pt ./best.pt
 
-# Jalankan server Uvicorn saat container dimulai
-# Port 8080 adalah port default yang didengarkan oleh Cloud Run
+# Expose port for Cloud Run
+EXPOSE 8080
+
+# Add this line to force CPU usage and prevent CUDA errors
+ENV NVIDIA_VISIBLE_DEVICES=""
+
+# Your command to start the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

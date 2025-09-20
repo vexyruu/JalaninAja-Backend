@@ -16,6 +16,9 @@ from ultralytics import YOLO
 import json
 from google.cloud import secretmanager
 import torch
+import json
+from google.cloud import secretmanager
+import torch
 
 load_dotenv()
 from dotenv import load_dotenv, find_dotenv
@@ -32,6 +35,15 @@ app = FastAPI(
 )
 
 # --- Secret and Configuration Management ---
+def get_secret_from_manager(project_id, secret_name):
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        print(f"[ERROR] Failed to access secret '{secret_name}': {e}")
+        return None
 def get_secret_from_manager(project_id, secret_name):
     try:
         client = secretmanager.SecretManagerServiceClient()
@@ -102,6 +114,9 @@ def load_model():
         model = YOLO(local_model_path)
         model.to('cpu')
         return model
+        model = YOLO(local_model_path)
+        model.to('cpu')
+        return model
     print(f"Local model not found at {local_model_path}. Route analysis features will be disabled.")
         from ultralytics import YOLO
         return YOLO(local_model_path)
@@ -109,6 +124,7 @@ def load_model():
 
 model = load_model()
 
+class ConfigResponse(BaseModel):
 class ConfigResponse(BaseModel):
     supabase_url: str
     supabase_anon_key: str
@@ -120,12 +136,18 @@ class UserUpdateRequest(BaseModel):
 
 class ReportResponse(BaseModel):
     report_id: int
+class ReportResponse(BaseModel):
+    report_id: int
     user_id: str
     category: str
     description: Optional[str] = None
     latitude: float
     longitude: float
     photo_url: Optional[str] = None
+    upvote_count: int
+    address: Optional[str] = None
+    Users: Optional[dict] = None
+    
     upvote_count: int
     address: Optional[str] = None
     Users: Optional[dict] = None
@@ -184,6 +206,7 @@ async def get_http_client():
 
 @app.get("/config", response_model=ConfigResponse)
 def get_app_configuration():
+    return ConfigResponse(
     return ConfigResponse(
         supabase_url=SUPABASE_URL,
         supabase_anon_key=SUPABASE_ANON_KEY,
@@ -292,15 +315,22 @@ async def is_road_residential(lat: float, lng: float) -> bool:
 
 async def process_and_cache_report_photo(report_data: dict):
     if not model or not report_data.get('photo_url'):
+async def process_and_cache_report_photo(report_data: dict):
+    if not model or not report_data.get('photo_url'):
         return
 
     print(f"Starting background analysis for photo: {report_data['photo_url']}")
+    print(f"Starting background analysis for photo: {report_data['photo_url']}")
     try:
+        sidewalk_area, tree_count, detected_labels = await run_model_on_image(report_data['photo_url'])
         sidewalk_area, tree_count, detected_labels = await run_model_on_image(report_data['photo_url'])
         
         is_residential = await is_road_residential(report_data['latitude'], report_data['longitude'])
+        is_residential = await is_road_residential(report_data['latitude'], report_data['longitude'])
         new_score = calculate_walkability_score(detected_labels, tree_count, is_residential, mode="distance_walkability")
 
+        cache_key_lat = round(report_data['latitude'], 5)
+        cache_key_lng = round(report_data['longitude'], 5)
         cache_key_lat = round(report_data['latitude'], 5)
         cache_key_lng = round(report_data['longitude'], 5)
         
@@ -315,6 +345,7 @@ async def process_and_cache_report_photo(report_data: dict):
             cache_data = {
                 "latitude": cache_key_lat, "longitude": cache_key_lng,
                 "walkability_score": float(new_score), "photo_url": report_data['photo_url'],
+                "walkability_score": float(new_score), "photo_url": report_data['photo_url'],
                 "tree_count": tree_count, "sidewalk_area": round(sidewalk_area * 100, 2),
                 "is_residential_road": is_residential, "heading": None,
                 "detected_labels": detected_labels
@@ -324,6 +355,7 @@ async def process_and_cache_report_photo(report_data: dict):
                 cache_data, 
                 on_conflict='latitude, longitude'
             ).execute()
+            print(f"Cache updated from report at location ({report_data['latitude']}, {report_data['longitude']})")
             print(f"Cache updated from report at location ({report_data['latitude']}, {report_data['longitude']})")
         else:
             print(f"New score ({new_score}) is not better than old score ({existing_score}). Cache not changed.")
@@ -338,6 +370,7 @@ async def process_and_cache_report_photo(report_data: dict):
 async def get_all_reports(offset: int = Query(0, ge=0), limit: int = Query(10, ge=1)):
 async def get_all_reports(offset: int = Query(0, ge=0), limit: int = Query(10, ge=1)):
     try:
+        reports_query = supabase.table('Report').select('*, Users(name, avatar_url, points)').order('created_at', desc=True).range(offset, offset + limit - 1).execute()
         reports_query = supabase.table('Report').select('*, Users(name, avatar_url, points)').order('created_at', desc=True).range(offset, offset + limit - 1).execute()
         return reports_query.data
     except Exception as e:
@@ -384,7 +417,43 @@ async def create_report(
                 file_options={"content-type": file.content_type}
             )
             photo_url = supabase.storage.from_("report-photos").get_public_url(file_name)
+@app.post("/reports", response_model=ReportResponse)
+async def create_report(
+    user_id: str = Form(...),
+    category: str = Form(...),
+    description: Optional[str] = Form(None),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    file: Optional[UploadFile] = File(None),
+    client: httpx.AsyncClient = Depends(get_http_client)
+):
+    photo_url = None
+    if file:
+        try:
+            file_content = await file.read()
+            file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+            file_name = f"reports/{user_id}-{uuid.uuid4()}.{file_extension}"
+            
+            supabase.storage.from_("report-photos").upload(
+                path=file_name,
+                file=file_content,
+                file_options={"content-type": file.content_type}
+            )
+            photo_url = supabase.storage.from_("report-photos").get_public_url(file_name)
         except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to upload photo: {str(e)}")
+
+    address = "Address not found"
+    try:
+        reverse_geocode_url = f"https://maps.googleapis.com/maps/api/geocode/json?latlng={latitude},{longitude}&key={GOOGLE_MAPS_API_KEY}"
+        response = await client.get(reverse_geocode_url)
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            if results:
+                address = results[0]['formatted_address']
+    except httpx.RequestError as e:
+        print(f"Could not fetch address: {e}")
+
             raise HTTPException(status_code=500, detail=f"Failed to upload photo: {str(e)}")
 
     address = "Address not found"
@@ -400,10 +469,14 @@ async def create_report(
 
     try:
         user_profile = supabase.table('Users').select('user_id, points').eq('user_id_auth', user_id).single().execute()
+        user_profile = supabase.table('Users').select('user_id, points').eq('user_id_auth', user_id).single().execute()
         internal_user_id = user_profile.data['user_id']
         current_points = user_profile.data['points']
 
         report_data = {
+            "user_id": internal_user_id, "description": description,
+            "latitude": latitude, "longitude": longitude,
+            "category": category, "photo_url": photo_url,
             "user_id": internal_user_id, "description": description,
             "latitude": latitude, "longitude": longitude,
             "category": category, "photo_url": photo_url,
@@ -519,7 +592,14 @@ async def upvote_report(report_id: int, user: dict = Depends(get_current_user)):
 
 # --- Route Calculation and AI Analysis Endpoints ---
 async def geocode_address_async(address: str, client: httpx.AsyncClient) -> dict | None:
+async def geocode_address_async(address: str, client: httpx.AsyncClient) -> dict | None:
     url = f"https://maps.googleapis.com/maps/api/geocode/json?address={address}&key={GOOGLE_MAPS_API_KEY}"
+    try:
+        response = await client.get(url)
+        if response.status_code == 200 and response.json()['status'] == 'OK':
+            return response.json()['results'][0]['geometry']['location']
+    except httpx.RequestError as e:
+        print(f"Geocoding failed for {address}: {e}")
     try:
         response = await client.get(url)
         if response.status_code == 200 and response.json()['status'] == 'OK':
@@ -529,10 +609,17 @@ async def geocode_address_async(address: str, client: httpx.AsyncClient) -> dict
     return None
 
 async def get_alternative_routes_from_google_async(origin_coords, dest_coords, client: httpx.AsyncClient):
+async def get_alternative_routes_from_google_async(origin_coords, dest_coords, client: httpx.AsyncClient):
     url = (f"https://maps.googleapis.com/maps/api/directions/json?"
            f"origin={origin_coords['lat']},{origin_coords['lng']}"
            f"&destination={dest_coords['lat']},{dest_coords['lng']}"
            f"&mode=walking&alternatives=true&key={GOOGLE_MAPS_API_KEY}")
+    try:
+        response = await client.get(url)
+        if response.status_code == 200 and response.json().get('routes'):
+            return response.json()['routes']
+    except httpx.RequestError as e:
+        print(f"Directions API call failed: {e}")
     try:
         response = await client.get(url)
         if response.status_code == 200 and response.json().get('routes'):
@@ -673,6 +760,7 @@ async def get_cached_analysis(origin: str, dest: str, mode: str) -> list[RouteAl
 
 @app.post("/calculate-routes", response_model=RouteComparisonResponse)
 async def calculate_route_alternatives(request: RouteRequest, client: httpx.AsyncClient = Depends(get_http_client)):
+async def calculate_route_alternatives(request: RouteRequest, client: httpx.AsyncClient = Depends(get_http_client)):
     if model is None:
         raise HTTPException(status_code=503, detail="AI model is not available.")
     
@@ -682,9 +770,12 @@ async def calculate_route_alternatives(request: RouteRequest, client: httpx.Asyn
 
     origin_coords = await geocode_address_async(request.origin_address, client)
     dest_coords = await geocode_address_async(request.destination_address, client)
+    origin_coords = await geocode_address_async(request.origin_address, client)
+    dest_coords = await geocode_address_async(request.destination_address, client)
     if not origin_coords or not dest_coords:
         raise HTTPException(status_code=404, detail="One or both addresses could not be found.")
     
+    alternative_routes_data = await get_alternative_routes_from_google_async(origin_coords, dest_coords, client)
     alternative_routes_data = await get_alternative_routes_from_google_async(origin_coords, dest_coords, client)
     if not alternative_routes_data:
         raise HTTPException(status_code=404, detail="No walking routes found.")
@@ -726,8 +817,12 @@ async def get_route_calculation_status(job_id: str):
 
 @app.get("/autocomplete-address", response_model=AutocompleteResponse)
 async def autocomplete_address(query: str, client: httpx.AsyncClient = Depends(get_http_client)):
+async def autocomplete_address(query: str, client: httpx.AsyncClient = Depends(get_http_client)):
     url = (f"https://maps.googleapis.com/maps/api/place/autocomplete/json?"
            f"input={query}&key={GOOGLE_MAPS_API_KEY}&location=-7.2575,112.7521&radius=50000&strictbounds=true")
+    try:
+        response = await client.get(url)
+        response.raise_for_status()
     try:
         response = await client.get(url)
         response.raise_for_status()

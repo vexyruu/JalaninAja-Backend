@@ -1,10 +1,9 @@
 fastapi
 uvicorn[standard]
-torch
 ultralytics
 requests
 Pillow
-numpy
+numpy<2.0
 gcsfs
 google-cloud-secret-manager
 google-cloud-storage
@@ -12,3 +11,6 @@ supabase
 polyline
 osmnx
 python-dotenv
+arq[redis] 
+httpx
+python-multipart

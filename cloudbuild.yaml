@@ -1,0 +1,7 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', '${_TAG}', '.', '-f', '${_DOCKERFILE}']
+images:
+- '${_TAG}'
+options:
+  machineType: 'E2_HIGHCPU_8'

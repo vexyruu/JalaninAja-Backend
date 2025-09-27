@@ -1,7 +1,19 @@
+# cloudbuild.yaml
+# This file defines the steps for Google Cloud Build to execute.
+
 steps:
+# Step 1: Build the Docker image
+# This step uses the standard Docker builder to build the image.
+# The Dockerfile and image tag are passed in as substitution variables.
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', '${_TAG}', '.', '-f', '${_DOCKERFILE}']
+  args: ['build', '-t', '$_TAG', '-f', '$_DOCKERFILE', '.']
+
+# Step 2: Push the Docker image
+# After a successful build, this step pushes the tagged image to your
+# Google Artifact Registry.
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', '$_TAG']
+
+# This specifies that the final image pushed should be the one we tagged.
 images:
-- '${_TAG}'
-options:
-  machineType: 'E2_HIGHCPU_8'
+- '$_TAG'

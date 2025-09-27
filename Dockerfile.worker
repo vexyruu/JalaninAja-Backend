@@ -1,26 +1,30 @@
+# Use the same base as your main Dockerfile for consistency
 FROM python:3.11-slim
 
+# Set environment variables for Python
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+# Install system dependencies required for OpenCV/Pillow
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy and install Python requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the entire application source code
+# This includes worker_app.py, best.onnx, and the shared/ directory
 COPY . .
 
-COPY start.sh .
-RUN chmod +x /app/start.sh
-
+# Expose the port the worker will run on
 EXPOSE 8080
 
-ENV NVIDIA_VISIBLE_DEVICES=""
-
-CMD ["./start.sh"]
+# This command starts the FastAPI server for the worker
+# It's no longer an 'arq' command
+CMD ["uvicorn", "worker_app:app", "--host", "0.0.0.0", "--port", "8080"]

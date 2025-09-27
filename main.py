@@ -287,4 +287,3 @@ async def get_readable_address(lat: float, lng: float, client: httpx.AsyncClient
 
 @app.get("/")
 def read_root(): return {"message": "Welcome to the JalaninAja API!"}
-
